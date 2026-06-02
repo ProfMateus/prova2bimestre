@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Avaliação Monitorada</title>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb; --danger: #dc2626; --bg: #f1f5f9;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 100vh; user-select: none; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 600px; position: relative; }
+        .screen { display: none; }
+        .active { display: block; }
+        .timer-bar { position: absolute; top: 0; left: 0; height: 5px; background: var(--primary); transition: width 1s linear; width: 100%; border-radius: 12px 12px 0 0; }
+        .timer-text { font-weight: bold; color: var(--primary); text-align: right; margin-bottom: 10px; }
+        h2 { margin-bottom: 20px; color: #1e293b; }
+        input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 16px; }
+        button { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #cbd5e1; }
+        .option-label { display: flex; align-items: center; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; margin-bottom: 10px; transition: 0.2s; }
+        .option-label:hover { background: #f8fafc; }
+        .option-label input { width: auto; margin-right: 15px; margin-bottom: 0; }
+        .status-msg { padding: 15px; border-radius: 6px; margin-top: 10px; font-size: 14px; display: none; }
+        .error { background: #fee2e2; color: var(--danger); display: block; }
+        .waiting { background: #fef9c3; color: #854d0e; display: block; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="timer-line" class="timer-bar" style="display: none;"></div>
+    
+    <div id="login-screen" class="screen active">
+        <h2>Acesso à Avaliação</h2>
+        <input type="text" id="student-name" placeholder="Nome Completo">
+        <input type="text" id="student-ra" placeholder="RA do Aluno">
+        <button id="btn-login">Entrar no Sistema</button>
+        <div id="login-error" class="status-msg"></div>
+    </div>
+
+    <div id="wait-screen" class="screen">
+        <h2 style="color: #854d0e;">Prova Bloqueada</h2>
+        <p>Olá <span id="wait-name"></span>, seus dados foram validados.</p>
+        <p style="margin-top: 10px;">Aguarde o professor liberar o início da prova no sistema central.</p>
+        <div class="status-msg waiting">Status: Aguardando autorização do instrutor...</div>
+    </div>
+
+    <div id="quiz-screen" class="screen">
+        <div class="timer-text">Tempo restante: <span id="clock">40:00</span></div>
+        <div id="question-area">
+            <p class="question-number">Questão <span id="q-num"></span> de 7</p>
+            <h3 id="q-text" style="margin: 15px 0;"></h3>
+            <div id="options"></div>
+        </div>
+        <button id="btn-next" disabled style="margin-top: 20px;">Confirmar Resposta</button>
+    </div>
+
+    <div id="msg-screen" class="screen" style="text-align: center;">
+        <h2 id="msg-title"></h2>
+        <p id="msg-body"></p>
+        <p id="msg-score" style="font-size: 24px; font-weight: bold; margin-top: 20px;"></p>
+    </div>
+</div>
+
+<script>
+    // 1. CONFIGURAÇÃO FIREBASE (COLE A SUA AQUI)
+    const firebaseConfig = {
+        apiKey: "SUA_API_KEY",
+        authDomain: "SEU_PROJETO.firebaseapp.com",
+        projectId: "SEU_PROJETO",
+        storageBucket: "SEU_PROJETO.appspot.com",
+        messagingSenderId: "ID",
+        appId: "APP_ID"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // 2. VARIÁVEIS DE CONTROLE
+    let alunoAtual = null;
+    let provaLiberada = false;
+    let tempoRestante = 40 * 60; // 40 minutos em segundos
+    let indiceQuestao = 0;
+    let acertos = 0;
+    let quizIniciado = false;
+    let timerInterval = null;
+
+    const questoes = [
+        { q: "Qual comando Git cria um novo repositório?", options: ["git start", "git init", "git new", "git setup"], correct: 1 },
+        { q: "Qual seletor CSS altera um ID?", options: [".", "&", "#", "->"], correct: 2 },
+        { q: "Qual tag define o título da aba do navegador?", options: ["<head>", "<header>", "<title>", "<body>"], correct: 2 },
+        { q: "O que o JS é principalmente?", options: ["Linguagem de Estilo", "Linguagem de Programação", "Banco de Dados", "Protocolo de Rede"], correct: 1 },
+        { q: "Qual a função do console.log()?", options: ["Exibir alertas", "Imprimir no console", "Criar variáveis", "Conectar ao BD"], correct: 1 },
+        { q: "Qual tag cria uma lista não ordenada?", options: ["<ol>", "<li>", "<ul>", "<list>"], correct: 2 },
+        { q: "Como fechar uma tag HTML?", options: ["/", "\\", "!", "?"], correct: 0 }
+    ];
+
+    // 3. MONITORAMENTO EM TEMPO REAL DA LIBERAÇÃO (ADMIN)
+    db.collection("config").doc("prova").onSnapshot((doc) => {
+        provaLiberada = doc.data().liberada;
+        if (provaLiberada && alunoAtual && !quizIniciado) {
+            iniciarProva();
+        }
+    });
+
+    // 4. LÓGICA DE LOGIN (Busca no Banco)
+    document.getElementById('btn-login').onclick = async () => {
+        const ra = document.getElementById('student-ra').value.trim();
+        const nomeInput = document.getElementById('student-name').value.trim();
+        const erroBox = document.getElementById('login-error');
+
+        if(!ra || !nomeInput) return alert("Preencha todos os campos.");
+
+        try {
+            const doc = await db.collection("alunos").doc(ra).get();
+            
+            if (!doc.exists) {
+                erroBox.innerText = "RA não cadastrado no sistema.";
+                erroBox.classList.add('error');
+            } else {
+                const dados = doc.data();
+                if (dados.status !== "pendente") {
+                    alert("Este RA já realizou ou foi bloqueado nesta prova.");
+                    return;
+                }
+                
+                alunoAtual = { ra: ra, nome: dados.nome, infrações: 0 };
+                document.getElementById('wait-name').innerText = alunoAtual.nome;
+                
+                if (provaLiberada) {
+                    iniciarProva();
+                } else {
+                    showScreen('wait-screen');
+                }
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    // 5. INICIAR PROVA E CRONÔMETRO
+    async function iniciarProva() {
+        quizIniciado = true;
+        showScreen('quiz-screen');
+        document.getElementById('timer-line').style.display = 'block';
+        
+        // Salva no banco que o aluno iniciou
+        await db.collection("alunos").doc(alunoAtual.ra).update({ status: "fazendo" });
+
+        timerInterval = setInterval(() => {
+            tempoRestante--;
+            atualizarRelogio();
+            if (tempoRestante <= 0) finalizarProva("tempo");
+        }, 1000);
+
+        carregarQuestao();
+    }
+
+    function atualizarRelogio() {
+        const min = Math.floor(tempoRestante / 60);
+        const sec = tempoRestante % 60;
+        document.getElementById('clock').innerText = `${min}:${sec < 10 ? '0' : ''}${sec}`;
+        document.getElementById('timer-line').style.width = `${(tempoRestante / (40*60)) * 100}%`;
+    }
+
+    // 6. LÓGICA DAS QUESTÕES
+    function carregarQuestao() {
+        const q = questoes[indiceQuestao];
+        document.getElementById('q-num').innerText = indiceQuestao + 1;
+        document.getElementById('q-text').innerText = q.q;
+        const optionsDiv = document.getElementById('options');
+        optionsDiv.innerHTML = "";
+        document.getElementById('btn-next').disabled = true;
+
+        q.options.forEach((opt, i) => {
+            const label = document.createElement('label');
+            label.className = "option-label";
+            label.innerHTML = `<input type="radio" name="opt" value="${i}"> ${opt}`;
+            label.onclick = () => document.getElementById('btn-next').disabled = false;
+            optionsDiv.appendChild(label);
+        });
+    }
+
+    document.getElementById('btn-next').onclick = () => {
+        const sel = document.querySelector('input[name="opt"]:checked').value;
+        if(parseInt(sel) === questoes[indiceQuestao].correct) acertos++;
+        
+        indiceQuestao++;
+        if(indiceQuestao < questoes.length) carregarQuestao();
+        else finalizarProva("concluido");
+    };
+
+    // 7. FINALIZAÇÃO E SEGURANÇA (FIREBASE)
+    async function finalizarProva(motivo) {
+        clearInterval(timerInterval);
+        quizIniciado = false;
+        let statusFinal = "finalizado";
+        let titulo = "Prova Concluída!";
+        let corpo = "Suas respostas foram salvas com sucesso.";
+
+        if (motivo === "bloqueio") {
+            statusFinal = "bloqueado";
+            acertos = 0;
+            titulo = "SISTEMA BLOQUEADO";
+            corpo = "Tentativa de fraude detectada (saída da aba ou print). Sua nota é zero.";
+        } else if (motivo === "tempo") {
+            titulo = "Tempo Esgotado!";
+            corpo = "O tempo de 40 minutos acabou. Suas respostas foram enviadas.";
+        }
+
+        await db.collection("alunos").doc(alunoAtual.ra).update({
+            status: statusFinal,
+            nota: acertos,
+            hora_fim: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        document.getElementById('msg-title').innerText = titulo;
+        document.getElementById('msg-body').innerText = corpo;
+        document.getElementById('msg-score').innerText = `Acertos: ${acertos} de 7`;
+        showScreen('msg-screen');
+    }
+
+    // 8. ANTI-FRAUDE (DENTRO DA PROVA)
+    function detectarFraude() {
+        if (!quizIniciado) return;
+        alunoAtual.infrações++;
+        if (alunoAtual.infrações === 1) {
+            alert("AVISO: Não saia da página ou tire prints! Na próxima você será BLOQUEADO.");
+        } else {
+            finalizarProva("bloqueio");
+        }
+    }
+
+    window.onblur = () => detectarFraude();
+    document.addEventListener('visibilitychange', () => { if(document.hidden) detectarFraude(); });
+    window.addEventListener('keyup', (e) => { if(e.key === 'PrintScreen') detectarFraude(); });
+
+    function showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+</script>
+
+</body>
+</html>
