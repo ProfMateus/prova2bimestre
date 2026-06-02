@@ -30,7 +30,32 @@
     </style>
 </head>
 <body>
+<!-- código para incorporar o firebase -->
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
 
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyC7xw6Mq6obcM7mmVjkcKJ2XpC_nzT7m7I",
+    authDomain: "prova-2-bimestre.firebaseapp.com",
+    projectId: "prova-2-bimestre",
+    storageBucket: "prova-2-bimestre.firebasestorage.app",
+    messagingSenderId: "195260374358",
+    appId: "1:195260374358:web:81ea9cc9f497bba869caf7",
+    measurementId: "G-YGJ9EGHLJ9"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+    
+    
 <div class="container">
     <div id="timer-line" class="timer-bar" style="display: none;"></div>
     
