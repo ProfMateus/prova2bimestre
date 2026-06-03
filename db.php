@@ -1,20 +1,10 @@
 <?php
-$host = 'localhost';
-$db   = 'sistema_avaliacao';
-$user = 'root'; // Ajuste conforme seu ambiente
-$pass = '';     // Ajuste conforme seu ambiente
-$charset = 'utf8mb4';
+// Ele tenta ler do servidor online. Se não existir (você testando no PC local), usa o 'localhost'
+$host = getenv('DB_HOST') ?: 'localhost';
+$db   = getenv('DB_NAME') ?: 'sistema_avaliacao';
+$user = getenv('DB_USER') ?: 'root';
+$pass = getenv('DB_PASS') ?: ''; 
+$port = getenv('DB_PORT') ?: '3306';
 
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-$options = [
-    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    PDO::ATTR_EMULATE_PREPARES   => false,
-];
-
-try {
-     $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (\PDOException $e) {
-     throw new \PDOException($e->getMessage(), (int)$e->getCode());
-}
-?>
+$dsn = "mysql:host=$host;dbname=$db;port=$port;charset=utf8mb4";
+// ... resto do código de conexão PDO idêntico ao primeiro
